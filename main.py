@@ -23,30 +23,31 @@ def image_preprocess(img, target_width):
 if __name__ == '__main__':
     img = plt.imread("./brain.jpg")
     img = image_preprocess(img, target_width=512)
+    f, ax = plt.subplots(figsize=grid_figure_size(1, 1, magnitude=2.75))
+    plt.imshow(img, cmap="gray")
 
     w = Worm(img, num_nodes=32, scale=1.0, thickness=2.0, 
             # orientation_angle=3.14/4,
             base_position=np.array([237, 164]))
 
-    m = StretchMotor(w)
-    i = 0
-
-    ax_collection_to_remove = []
-    f, ax = plt.subplots(figsize=grid_figure_size(1, 1, magnitude=2.75))
-    plt.imshow(img, cmap="gray")
+    ms = StretchMotor(w)
+    mn = NomalizationMotor(w)
 
     w.draw(f, ax)
 
     def next_on_click(event):
         print("NEXT")
-        m.apply(scale_length=0.5, scale_orientation=0.05)
+        ms.apply(scale_length=0.5, scale_orientation=0.05)
+        mn.apply(scale_length=0.5, scale_orientation=0.05)
         w.draw(f, ax)
 
     def auto_on_click(event):
         print("AUTO (not implemented)")
 
     def reset_on_click(event):
-        print("RESET (not implemented)")
+        print("RESET")
+        w.reset()
+        w.draw(f, ax)
 
     def quit_on_click(event):
         print("QUIT")

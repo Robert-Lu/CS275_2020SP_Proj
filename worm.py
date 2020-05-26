@@ -1,6 +1,7 @@
 import numpy as np
 from math import sin, cos, exp
 import scipy.ndimage as nd
+from scipy.stats import norm
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib import colors as mcolors
@@ -31,20 +32,15 @@ class Worm(object):
         self.trans_params_base_position = base_position
         self.trans_params_scale = scale  # np.array([1, 1], dtype=float)
         self.num_nodes = num_nodes
+        # record original parameters
+        self.ori_trans_params_orientation_angle = orientation_angle
+        self.ori_trans_params_base_position = base_position
+        self.ori_trans_params_scale = scale  # np.array([1, 1], dtype=float)
+        self.ori_num_nodes = num_nodes
+        self.ori_thickness = thickness
         # initialization
-        self.profile_length      = np.ones([self.num_nodes],  dtype=float)
-        self.profile_orientation = np.zeros([self.num_nodes], dtype=float) 
-        self.profile_thick_left  = np.ones([self.num_nodes],  dtype=float) * thickness
-        self.profile_thick_right = np.ones([self.num_nodes],  dtype=float) * thickness
-        # terminal shrink TODO?
-        self.profile_thick_left[1] *= 0.5
-        self.profile_thick_left[2] *= 0.85
-        self.profile_thick_left[num_nodes-2] *= 0.5
-        self.profile_thick_left[num_nodes-3] *= 0.85
-        self.profile_thick_right[1] *= 0.5
-        self.profile_thick_right[2] *= 0.85
-        self.profile_thick_right[num_nodes-2] *= 0.5
-        self.profile_thick_right[num_nodes-3] *= 0.85
+        self.profile_init()
+
         # # rand for test
         # for i in range(self.num_nodes):
         #     self.profile_length[i] += random() * 0.5
@@ -55,6 +51,8 @@ class Worm(object):
         self.node_pos   = [None for _ in range(self.num_nodes)]
         self.node_left  = [None for _ in range(self.num_nodes)]
         self.node_right = [None for _ in range(self.num_nodes)]
+        # motors
+        self.motors = []
         # update
         self.last_change = time()
         self.last_update = 0
@@ -62,6 +60,54 @@ class Worm(object):
         # draw
         self.fig_handle = None
         self.ax_collection_to_remove = []
+
+    def profile_init(self):
+        num_nodes = self.ori_num_nodes
+        self.profile_length      = np.ones([self.num_nodes],  dtype=float)
+        self.profile_orientation = np.zeros([self.num_nodes], dtype=float) 
+        self.profile_thick_left  = np.ones([self.num_nodes],  dtype=float) * self.ori_thickness
+        self.profile_thick_right = np.ones([self.num_nodes],  dtype=float) * self.ori_thickness
+        # terminal shrink TODO?
+        self.profile_thick_left[1] *= 0.5
+        self.profile_thick_left[2] *= 0.85
+        self.profile_thick_left[num_nodes-2] *= 0.5
+        self.profile_thick_left[num_nodes-3] *= 0.85
+        self.profile_thick_right[1] *= 0.5
+        self.profile_thick_right[2] *= 0.85
+        self.profile_thick_right[num_nodes-2] *= 0.5
+        self.profile_thick_right[num_nodes-3] *= 0.85
+
+    def reset(self):
+        self.trans_params_orientation_angle = self.ori_trans_params_orientation_angle
+        self.trans_params_base_position = self.ori_trans_params_base_position
+        self.trans_params_scale = self.ori_trans_params_scale  
+        self.num_nodes = self.ori_num_nodes
+        self.last_change = time()
+        self.profile_init()
+        self.update_node()        
+
+    def operate_profile_gaussion(self, profile_name, position, width, magnitude):
+        profile = None
+        if profile_name == 'L':
+            profile = self.profile_length 
+        elif profile_name == 'O':
+            profile = self.profile_orientation
+        elif profile_name == 'TL':
+            profile = self.profile_thick_left
+        elif profile_name == 'TR':
+            profile = self.profile_thick_right
+        if profile is None:
+            logging.warning("Bad call: operate_profile_gaussion: profile_name=%r" % profile_name)
+            return
+        self.last_change = time()
+        
+        N = self.num_nodes
+        position = position % N
+        for i in range(position - 3 * width, position + 3 * width):
+            # index range check
+            if not (i >= 0 and i < N):
+                continue
+            profile[i] += magnitude * norm.pdf(i, position, width) / norm.pdf(position, position, width)
 
     def update_node(self):
         if self.last_update >= self.last_change:
@@ -123,7 +169,7 @@ class Worm(object):
     def get_blur_image(self, sigma):
         if sigma not in self.blur_image_cache.keys():
             self.blur_image_cache[sigma] = gaussian_blur(self.image, sigma)
-            print("add", sigma)
+            logging.info('Worm.get_blur_image: added blur image with sigma=%f to cache.' % sigma)
         return self.blur_image_cache[sigma]
 
     def draw(self, f, ax):
@@ -208,7 +254,7 @@ class TerminalSensor(Sensor):
         # logging.info('unit_left %r' % self.unit_left)
         # logging.info('unit_right %r' % self.unit_right)
 
-    def detect(self, threshold=0.8, scale=1.0, sigma=1.5):
+    def detect(self, threshold=0.9, scale=1.0, sigma=1.5, verbose=False):
         w = self.worm
         w.update_node()
         pos = w.node_pos[self.node_index]
@@ -225,6 +271,9 @@ class TerminalSensor(Sensor):
         r_fr  = ((get_image_intensity(ib, pos + _front + _right)     / base_image_intensity) - threshold) / (1 - threshold)
         r_frr = ((get_image_intensity(ib, pos + _front + 2 * _right) / base_image_intensity) - threshold) / (1 - threshold)
 
+        if verbose:
+            logging.info('r_f=%f, r_ff=%f, r_fl=%f, r_fll=%f, r_fr=%f, r_frr=%f' % (r_f, r_ff, r_fl, r_fll, r_fr, r_frr))
+
         # can go foward? further?
         p_can_foward  = exp(r_f) / E
         p_can_further = exp(r_ff) / E
@@ -232,9 +281,15 @@ class TerminalSensor(Sensor):
         p_can_left  = _fbetween(0, (exp(r_fl) * 2 + exp(r_fll)) / 3 / E, 1.0)
         p_can_right = _fbetween(0, (exp(r_fr) * 2 + exp(r_frr)) / 3 / E, 1.0)
         # forward strength (0~1) & direction (-1(L)~+1(R))
-        strength = p_can_foward * 0.5
-        if strength > 0.333:
-            strength += 0.5 * p_can_further
+        if verbose:
+            logging.info('p_can_foward=%f, p_can_further=%f, p_can_left=%f, p_can_right=%f' % (p_can_foward, p_can_further, p_can_left, p_can_right))
+
+        strength = 0
+        if p_can_foward  > 0.667:
+            strength += p_can_foward * 0.5
+            if p_can_further > 0.667:
+                strength += p_can_further * 0.5
+
         direction = p_can_right - p_can_left
 
         return [strength, direction]
@@ -242,7 +297,10 @@ class TerminalSensor(Sensor):
 
 class Motor(object):
     def __init__(self, worm):
-        self.worm = worm        
+        self.worm = worm      
+        worm.motors.append(self)  
+        logging.info("Wrom[%r] add Motor[%r]" % (worm, self))
+
 
     def apply(self):
         logging.warning('abstract base class method called?')
@@ -254,23 +312,31 @@ class StretchMotor(Motor):
         self.head_sensor = TerminalSensor(worm, 0)
         self.tail_sensor = TerminalSensor(worm, -1)
 
-    def apply(self, scale_length=1.0, scale_orientation=1.0):
+    def apply(self, scale_length=1.0, scale_orientation=1.0, verbose=True):
         w = self.worm
         N = w.num_nodes
-        logging.info("StretchMotor(%r) begins" % w)
-        head_strength, head_direction = self.head_sensor.detect(scale=1.0)
-        w.profile_length[0:5] += head_strength * scale_length
-        w.profile_orientation[0:5] += head_direction * scale_orientation
-        logging.info("Head terminal sensor: detect: stretch strength = %f" % head_strength)
-        logging.info("Head terminal sensor: detect: stretch direction = %f (+right, -left)" % head_direction)
-        tail_strength, tail_direction = self.tail_sensor.detect(scale=1.0)
-        w.profile_length[N-5:N-1] += tail_strength * scale_length
-        w.profile_orientation[N-5:N-1] += tail_direction * scale_orientation
-        logging.info("Tail terminal sensor: detect: stretch strength = %f" % tail_strength)
-        logging.info("Tail terminal sensor: detect: stretch direction = %f (+right, -left)" % tail_direction)
+        if verbose:
+            logging.info("StretchMotor(%r) begins" % w)
+        head_strength, head_direction = self.head_sensor.detect(scale=1.0, verbose=verbose)
+        w.operate_profile_gaussion('L', 0, 3, head_strength * scale_length)
+        w.operate_profile_gaussion('O', 0, 3, head_direction * scale_orientation)
+        # w.profile_length[0:5] += head_strength * scale_length
+        # w.profile_orientation[0:5] += head_direction * scale_orientation
+        if verbose:
+            logging.info("Head terminal sensor: detect: stretch strength = %f" % head_strength)
+            logging.info("Head terminal sensor: detect: stretch direction = %f (+right, -left)" % head_direction)
+        tail_strength, tail_direction = self.tail_sensor.detect(scale=1.0, verbose=verbose)
+        w.operate_profile_gaussion('L', -1, 3, tail_strength * scale_length)
+        w.operate_profile_gaussion('O', -1, 3, tail_direction * scale_orientation)
+        # w.profile_length[N-5:N-1] += tail_strength * scale_length
+        # w.profile_orientation[N-5:N-1] += tail_direction * scale_orientation
+        if verbose:
+            logging.info("Tail terminal sensor: detect: stretch strength = %f" % tail_strength)
+            logging.info("Tail terminal sensor: detect: stretch direction = %f (+right, -left)" % tail_direction)
 
         w.last_change = time()
-        logging.info("StretchMotor(%r) ends" % w)
+        if verbose:
+            logging.info("StretchMotor(%r) ends" % w)
 
 
 class ThickenMotor(Motor):
@@ -281,4 +347,9 @@ class ThickenMotor(Motor):
 class NomalizationMotor(Motor):
     def __init__(self, worm):
         super(NomalizationMotor, self).__init__(worm)
+
+    def apply(self, scale_length=1.0, scale_orientation=1.0, verbose=False):
+        L = self.worm.profile_length
+        AL = np.average(L)
+        self.worm.profile_length = 0.95 * L + 0.04 * AL
 
