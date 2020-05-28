@@ -32,21 +32,27 @@ if __name__ == '__main__':
              # orientation_angle=3.14/4,
              base_position=np.array([237, 164]))
 
-    ms = StretchMotor(w)
+    ms = StretchMotor(w, 
+            scale_length=0.5, scale_orientation=0.1, 
+            sensor_threshold=0.9)
+    mt = ThickenMotor(w, scale_thickness=0.2,
+            sensor_threshold=0.7)
     mn = NomalizationMotor(w)
 
     w.draw(f, ax)
 
     def test_on_click(event):
         print("IDLE")
-        # ms.apply(scale_length=0.5, scale_orientation=0.05)
-        mn.apply(scale_length=0.5, scale_orientation=0.05)
+        # ms.apply()
+        mn.apply()
+        mt.apply()
         w.draw(f, ax)
 
     def next_on_click(event):
         print("NEXT")
-        ms.apply(scale_length=0.5, scale_orientation=0.05)
-        mn.apply(scale_length=0.5, scale_orientation=0.05)
+        ms.apply()
+        mt.apply()
+        mn.apply()
         w.draw(f, ax)
 
     def auto_on_click(event):

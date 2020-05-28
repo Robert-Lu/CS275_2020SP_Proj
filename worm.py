@@ -237,6 +237,7 @@ class Sensor(object):
 class NodeSensor(Sensor):
 
     # For node sensor, left and right are consistant with TL and TR
+    #                  front is the direction node index increasing.
     def __init__(self, worm, node_index):
         super(NodeSensor, self).__init__(worm)
         w = self.worm
@@ -255,12 +256,56 @@ class NodeSensor(Sensor):
             self.unit_front = np.array(
                 [cos(theta + O[I + 1]), sin(theta + O[I + 1])])
         self.unit_left = np.array(
-            [cos(theta + O[i] - angle_90), sin(theta + O[i] - angle_90)])
+            [cos(theta + O[I] - angle_90), sin(theta + O[I] - angle_90)])
         self.unit_right = np.array(
-            [cos(theta + O[i] + angle_90), sin(theta + O[i] + angle_90)])
+            [cos(theta + O[I] + angle_90), sin(theta + O[I] + angle_90)])
 
     def detect(self, threshold=0.9, scale=1.0, sigma=1.5, verbose=False):
-        pass
+        w = self.worm
+        w.update_node()
+        pos = w.node_pos[self.node_index]
+        left_pos = w.node_left[self.node_index]
+        right_pos = w.node_right[self.node_index]
+        _left = self.unit_left * scale
+        _right = self.unit_right * scale
+
+        ib = w.get_blur_image(sigma=sigma)
+        base_image_intensity = get_image_intensity(ib, pos)
+        r_l = ((get_image_intensity(ib, left_pos + _left) /
+                base_image_intensity) - threshold) / (1 - threshold)
+        r_ll = ((get_image_intensity(ib, left_pos + 2 * _left) /
+                 base_image_intensity) - threshold) / (1 - threshold)
+        r_r = ((get_image_intensity(ib, right_pos + _right) /
+                base_image_intensity) - threshold) / (1 - threshold)
+        r_rr = ((get_image_intensity(ib, right_pos + 2 * _right) /
+                 base_image_intensity) - threshold) / (1 - threshold)
+
+        if verbose:
+            logging.info('r_l=%f, r_ll=%f, r_r=%f, r_rr=%f' %
+                         (r_l, r_ll, r_r, r_rr))
+
+        # can go left? further?
+        p_can_left = exp(r_l) / E
+        p_can_left_further = exp(r_ll) / E
+        # can go right? further?
+        p_can_right = exp(r_r) / E
+        p_can_right_further = exp(r_rr) / E
+        if verbose:
+            logging.info('p_can_left=%f, p_can_left_further=%f, p_can_right=%f, p_can_right_further=%f' % (
+                p_can_left, p_can_left_further, p_can_right, p_can_right_further))
+
+        left_strength = -0.15
+        right_strength = -0.15
+        if p_can_left > 0.667:
+            left_strength += p_can_left * 0.5
+            if p_can_left_further > 0.667:
+                left_strength += p_can_left_further * 0.5
+        if p_can_right > 0.667:
+            right_strength += p_can_right * 0.5
+            if p_can_right_further > 0.667:
+                right_strength += p_can_right_further * 0.5
+
+        return left_strength, right_strength
 
 
 class TerminalSensor(Sensor):
@@ -293,10 +338,6 @@ class TerminalSensor(Sensor):
         else:
             logging.warning(
                 'TerminalSensor.__init__: %d is not a terminal index.' % node_index)
-
-        # logging.info('unit_front %r' % self.unit_front)
-        # logging.info('unit_left %r' % self.unit_left)
-        # logging.info('unit_right %r' % self.unit_right)
 
     def detect(self, threshold=0.9, scale=1.0, sigma=1.5, verbose=False):
         w = self.worm
@@ -344,7 +385,7 @@ class TerminalSensor(Sensor):
 
         direction = p_can_right - p_can_left
 
-        return [strength, direction]
+        return strength, direction
 
 
 class Motor(object):
@@ -358,31 +399,39 @@ class Motor(object):
 
 
 class StretchMotor(Motor):
-    def __init__(self, worm):
+    def __init__(self, worm, scale_length=1.0, scale_orientation=1.0,
+                 sensor_scale=1.0, sensor_sigma=1.5, sensor_threshold=0.9):
         super(StretchMotor, self).__init__(worm)
         self.head_sensor = TerminalSensor(worm, 0)
         self.tail_sensor = TerminalSensor(worm, -1)
+        self.scale_length = scale_length
+        self.scale_orientation = scale_orientation
+        self.sensor_scale = sensor_scale
+        self.sensor_sigma = sensor_sigma
+        self.sensor_threshold = sensor_threshold
 
-    def apply(self, scale_length=1.0, scale_orientation=1.0, verbose=True):
+    def apply(self, verbose=True):
         w = self.worm
         N = w.num_nodes
         if verbose:
             logging.info("StretchMotor(%r) begins" % w)
         head_strength, head_direction = self.head_sensor.detect(
-            scale=1.0, verbose=verbose)
-        w.operate_profile_gaussion('L', 0, 3, head_strength * scale_length)
+            scale=self.sensor_scale, threshold=self.sensor_threshold, sigma=self.sensor_sigma, verbose=verbose)
         w.operate_profile_gaussion(
-            'O', 0, 3, head_direction * scale_orientation)
+            'L', 0, 3, head_strength * self.scale_length)
+        w.operate_profile_gaussion(
+            'O', 0, 3, head_direction * self.scale_orientation)
         if verbose:
             logging.info(
                 "Head terminal sensor: detect: stretch strength = %f" % head_strength)
             logging.info(
                 "Head terminal sensor: detect: stretch direction = %f (+right, -left)" % head_direction)
         tail_strength, tail_direction = self.tail_sensor.detect(
-            scale=1.0, verbose=verbose)
-        w.operate_profile_gaussion('L', -1, 3, tail_strength * scale_length)
+            scale=self.sensor_scale, threshold=self.sensor_threshold, sigma=self.sensor_sigma, verbose=verbose)
         w.operate_profile_gaussion(
-            'O', -1, 3, tail_direction * scale_orientation)
+            'L', -1, 3, tail_strength * self.scale_length)
+        w.operate_profile_gaussion(
+            'O', -1, 3, tail_direction * self.scale_orientation)
         if verbose:
             logging.info(
                 "Tail terminal sensor: detect: stretch strength = %f" % tail_strength)
@@ -395,17 +444,45 @@ class StretchMotor(Motor):
 
 
 class ThickenMotor(Motor):
-    def __init__(self, worm):
+    def __init__(self, worm, scale_thickness=1.0,
+                 sensor_scale=1.0, sensor_sigma=1.5, sensor_threshold=0.9):
         super(ThickenMotor, self).__init__(worm)
         w = self.worm
         N = w.num_nodes
+        self.sensors = [None for _ in range(N)]
+        for i in range(1, N - 1):
+            self.sensors[i] = NodeSensor(worm, i)
+        self.scale_thickness = scale_thickness
+        self.sensor_scale = sensor_scale
+        self.sensor_sigma = sensor_sigma
+        self.sensor_threshold = sensor_threshold
+
+    def apply(self, verbose=True):
+        w = self.worm
+        N = w.num_nodes
+        if verbose:
+            logging.info("ThickenMotor(%r) begins" % w)
+
+        for i in range(1, N - 1):
+            sensor = self.sensors[i]
+            ls, rs = sensor.detect(
+                scale=self.sensor_scale, threshold=self.sensor_threshold, sigma=self.sensor_sigma, verbose=verbose)
+            if verbose:
+                logging.info(
+                    "Node terminal sensor[%d]: detect: left/right strength = %f, %f" % (i, ls, rs))
+            w.operate_profile_gaussion('TL', i, 1, ls * self.scale_thickness)
+            w.operate_profile_gaussion('TR', i, 1, rs * self.scale_thickness)
+
+        w.last_change = time()
+        if verbose:
+            logging.info("ThickenMotor(%r) ends" % w)
 
 
 class NomalizationMotor(Motor):
     def __init__(self, worm):
         super(NomalizationMotor, self).__init__(worm)
 
-    def apply(self, scale_length=1.0, scale_orientation=1.0, verbose=True):
+    def apply(self, verbose=True):
         # L = self.worm.profile_length
         # AL = np.average(L)
         self.worm.profile_length = gaussian_filter1d(self.worm.profile_length,
