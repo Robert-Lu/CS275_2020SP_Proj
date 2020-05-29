@@ -33,9 +33,15 @@ class NodeSensor(Sensor):
     def __init__(self, worm, node_index):
         super(NodeSensor, self).__init__(worm)
         w = self.worm
-        I = self.node_index = node_index % w.num_nodes
+        self.node_index = node_index % w.num_nodes
         self.node_pos = w.node_pos[self.node_index]
+
+        self.update_directions()
+
+    def update_directions(self):
+        w = self.worm
         N = w.num_nodes
+        I = self.node_index
         N_middle = N // 2
         theta = w.trans_params_orientation_angle
         O = w.profile_orientation
@@ -55,6 +61,8 @@ class NodeSensor(Sensor):
     def detect(self, threshold=0.9, scale=1.0, sigma=1.5, verbose=False):
         w = self.worm
         w.update_node()
+        self.update_directions()
+
         pos = w.node_pos[self.node_index]
         left_pos = w.node_left[self.node_index]
         right_pos = w.node_right[self.node_index]
@@ -86,8 +94,8 @@ class NodeSensor(Sensor):
             logging.info('p_can_left=%f, p_can_left_further=%f, p_can_right=%f, p_can_right_further=%f' % (
                 p_can_left, p_can_left_further, p_can_right, p_can_right_further))
 
-        left_strength = -0.15
-        right_strength = -0.15
+        left_strength = -0.25
+        right_strength = -0.25
         if p_can_left > 0.667:
             left_strength += p_can_left * 0.5
             if p_can_left_further > 0.667:
@@ -110,8 +118,14 @@ class TerminalSensor(Sensor):
         self.node_index = node_index % N
         self.node_pos = self.worm.node_pos[self.node_index]
 
+        self.update_directions()
+
+    def update_directions(self):
+        N = self.worm.num_nodes
+
         # the head: front = p[0] - p[1]
         if self.node_index == 0:
+            self.node_prev_index = 1
             self.unit_front = normalized(
                 self.worm.node_pos[0] - self.worm.node_pos[1])
             self.unit_left = np.array(
@@ -121,6 +135,7 @@ class TerminalSensor(Sensor):
 
         # the tail: front = p[N-1] - p[N-2]
         elif self.node_index == N - 1:
+            self.node_prev_index = N - 2
             self.unit_front = normalized(
                 self.worm.node_pos[N - 1] - self.worm.node_pos[N - 2])
             self.unit_left = np.array(
@@ -134,10 +149,12 @@ class TerminalSensor(Sensor):
     def detect(self, threshold=0.9, scale=1.0, sigma=1.5, verbose=False):
         w = self.worm
         w.update_node()
+        self.update_directions()
         pos = w.node_pos[self.node_index]
-        _front = self.unit_front * scale
-        _left = self.unit_left * scale
-        _right = self.unit_right * scale
+        # _length = w.profile_length[self.node_prev_index] * w.trans_params_scale
+        _front = self.unit_front * scale #* _length
+        _left = self.unit_left * scale #* _length
+        _right = self.unit_right * scale #* _length
 
         ib = w.get_blur_image(sigma=sigma)
         base_image_intensity = get_image_intensity(ib, pos)
@@ -168,11 +185,13 @@ class TerminalSensor(Sensor):
             logging.info('p_can_foward=%f, p_can_further=%f, p_can_left=%f, p_can_right=%f' % (
                 p_can_foward, p_can_further, p_can_left, p_can_right))
 
-        strength = 0
+        strength = -0.15
         if p_can_foward > 0.667:
             strength += p_can_foward * 0.5
             if p_can_further > 0.667:
                 strength += p_can_further * 0.5
+        else:
+            strength += p_can_foward * 0.25
 
         direction = p_can_right - p_can_left
 

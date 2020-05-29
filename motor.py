@@ -5,11 +5,11 @@ from scipy.stats import norm
 from util import normalized, gaussian_blur, get_image_intensity, _fbetween
 from random import random
 from time import time
+from itertools import chain
 import logging
 from matplotlib.widgets import Button
 from scipy.ndimage import gaussian_filter1d
 from sensor import *
-
 
 class Motor(object):
     def __init__(self, worm):
@@ -41,9 +41,9 @@ class StretchMotor(Motor):
         head_strength, head_direction = self.head_sensor.detect(
             scale=self.sensor_scale, threshold=self.sensor_threshold, sigma=self.sensor_sigma, verbose=verbose)
         w.operate_profile_gaussion(
-            'L', 0, 3, head_strength * self.scale_length)
+            'L', 0, N // 10, head_strength * self.scale_length)
         w.operate_profile_gaussion(
-            'O', 0, 3, head_direction * self.scale_orientation)
+            'O', 0, N // 20, head_direction * self.scale_orientation)
         if verbose:
             logging.info(
                 "Head terminal sensor: detect: stretch strength = %f" % head_strength)
@@ -52,9 +52,9 @@ class StretchMotor(Motor):
         tail_strength, tail_direction = self.tail_sensor.detect(
             scale=self.sensor_scale, threshold=self.sensor_threshold, sigma=self.sensor_sigma, verbose=verbose)
         w.operate_profile_gaussion(
-            'L', -1, 3, tail_strength * self.scale_length)
+            'L', -1, N // 10, tail_strength * self.scale_length)
         w.operate_profile_gaussion(
-            'O', -1, 3, tail_direction * self.scale_orientation)
+            'O', -1, N // 20, tail_direction * self.scale_orientation)
         if verbose:
             logging.info(
                 "Tail terminal sensor: detect: stretch strength = %f" % tail_strength)
@@ -80,7 +80,7 @@ class ThickenMotor(Motor):
         self.sensor_sigma = sensor_sigma
         self.sensor_threshold = sensor_threshold
 
-    def apply(self, verbose=True):
+    def apply(self, verbose=False):
         w = self.worm
         N = w.num_nodes
         if verbose:
@@ -102,12 +102,60 @@ class ThickenMotor(Motor):
 
 
 class NomalizationMotor(Motor):
-    def __init__(self, worm):
+    def __init__(self, worm, balance_threshold=0.6, balance_scale=0.1):
         super(NomalizationMotor, self).__init__(worm)
+        self.balance_threshold = balance_threshold
+        self.balance_scale = balance_scale
 
-    def apply(self, verbose=True):
-        # L = self.worm.profile_length
-        # AL = np.average(L)
-        self.worm.profile_length = gaussian_filter1d(self.worm.profile_length,
-                                                     sigma=1, mode='nearest')
+    def apply(self, verbose=False):
+        w = self.worm
+        N = w.num_nodes
+
+        ## Part 1: Balance the TL and TR profiles.
+        # range N_middle-->tail: i_prev = i - 1
+        # range head<--N_middle: i_prev = i + 1
+        # on N_middle: special case
+        N_middle = N // 2
+        theta = w.trans_params_orientation_angle
+        p_0 = w.trans_params_base_position
+        scale = w.trans_params_scale
+        L = w.profile_length
+        O = w.profile_orientation
+        TL = w.profile_thick_left
+        TR = w.profile_thick_right
+
+        indices = chain(range(N_middle-1, 0, -1), range(N_middle+1, N-1))
+        for i in indices:
+            if i == N_middle:
+                pass  # special
+            else:
+                if i > N_middle:
+                    i_prev = i - 1
+                    orientation = +1
+                else:
+                    i_prev = i + 1
+                    orientation = -1
+                if TL[i] / TR[i] < self.balance_threshold or TR[i] / TL[i] < self.balance_threshold:
+                    # if not balance
+                    diff = TR[i] - TL[i] * scale # the left-right difference
+                    delta_length = diff * self.balance_scale  # how much (length) to tune
+                    length = L[i_prev] * scale  # the length between nodes
+                    delta_angle = delta_length / length  # the angle offset (delta_theta)
+                    O[i_prev] += delta_angle * orientation 
+                    # O[i] += delta_angle * orientation / 2
+                    TL[i] += delta_length
+                    TR[i] -= delta_length
+                    if verbose:
+                        logging.info("Balance node %d: delta=(%f, %f, %f)" % (i, delta_length, length, delta_angle))
+
+        ## Part 2: Smooth the profiles.
+        w.profile_length = gaussian_filter1d(w.profile_length, sigma=2, mode='nearest')
+        w.profile_orientation = gaussian_filter1d(w.profile_orientation, sigma=1, mode='nearest')
+        w.profile_thick_left = gaussian_filter1d(w.profile_thick_left, sigma=1, mode='nearest')
+        w.profile_thick_right = gaussian_filter1d(w.profile_thick_right, sigma=1, mode='nearest')
+
+        ## Part 3: Normalize the length.
+        average_L = np.average(w.profile_length)
+        # w.profile_length = np.clip(w.profile_length, average_L / 2, average_L * 2)
+
         self.worm.last_change = time()

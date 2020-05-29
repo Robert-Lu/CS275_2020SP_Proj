@@ -28,16 +28,13 @@ if __name__ == '__main__':
     f, ax = plt.subplots(figsize=grid_figure_size(1, 1, magnitude=2.75))
     plt.imshow(img, cmap="gray")
 
-    w = Worm(img, num_nodes=32, scale=1.0, thickness=2.0,
+    w = Worm(img, num_nodes=50, scale=.5, thickness=2.0,
              # orientation_angle=3.14/4,
-             base_position=np.array([237, 164]))
+             base_position=np.array([237, 163]))
 
-    ms = StretchMotor(w, 
-            scale_length=0.5, scale_orientation=0.1, 
-            sensor_threshold=0.9)
-    mt = ThickenMotor(w, scale_thickness=0.2,
-            sensor_threshold=0.7)
-    mn = NomalizationMotor(w)
+    ms = StretchMotor(w, scale_length=0.2, scale_orientation=0.4, sensor_threshold=0.95)
+    mt = ThickenMotor(w, scale_thickness=0.3, sensor_threshold=0.6)
+    mn = NomalizationMotor(w, balance_threshold=0.5, balance_scale=0.02)
 
     w.draw(f, ax)
 
@@ -45,14 +42,12 @@ if __name__ == '__main__':
         print("IDLE")
         # ms.apply()
         mn.apply()
-        mt.apply()
+        # mt.apply()
         w.draw(f, ax)
 
     def next_on_click(event):
         print("NEXT")
-        ms.apply()
-        mt.apply()
-        mn.apply()
+        w.apply_motors()
         w.draw(f, ax)
 
     def auto_on_click(event):

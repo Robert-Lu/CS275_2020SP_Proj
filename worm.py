@@ -175,6 +175,10 @@ class Worm(object):
         self.node_left[0] = self.node_pos[0]
         self.node_right[0] = self.node_pos[0]
 
+    def apply_motors(self):
+        for m in self.motors:
+            m.apply()
+
     def get_blur_image(self, sigma):
         if sigma not in self.blur_image_cache.keys():
             self.blur_image_cache[sigma] = gaussian_blur(self.image, sigma)
