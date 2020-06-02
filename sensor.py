@@ -146,7 +146,7 @@ class TerminalSensor(Sensor):
             logging.warning(
                 'TerminalSensor.__init__: %d is not a terminal index.' % node_index)
 
-    def detect(self, threshold=0.9, scale=1.0, sigma=1.5, verbose=False):
+    def detect(self, threshold=0.9, scale=1.0, sigma=1.5, verbose=False, use_ref=False):
         w = self.worm
         w.update_node()
         self.update_directions()
@@ -194,5 +194,12 @@ class TerminalSensor(Sensor):
             strength += p_can_foward * 0.25
 
         direction = p_can_right - p_can_left
+
+        if use_ref:
+            ir = w.ref_image
+            if get_image_intensity(ir, pos + 2 * _front) > 0.5:
+                strength = 0.3
+            else:
+                strength = -0.6
 
         return strength, direction

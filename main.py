@@ -6,6 +6,7 @@ from time import sleep
 from plt_helper import *
 from util import *
 from worm import *
+from ref import *
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -26,11 +27,18 @@ if __name__ == '__main__':
     img = plt.imread("./brain.jpg")
     img = image_preprocess(img, target_width=512)
     f, ax = plt.subplots(figsize=grid_figure_size(1, 1, magnitude=2.75))
-    plt.imshow(img, cmap="gray")
 
-    w = Worm(img, num_nodes=50, scale=.5, thickness=2.0,
+    w = Worm(img, num_nodes=64, scale=.5, thickness=2.0,
              # orientation_angle=3.14/4,
              base_position=np.array([237, 163]))
+    w.load("worm_data_20200601_164545")
+
+    ref_image = get_eroded_reference(img, threshold=230, blur_sigma=2, eroding_width=3)
+    plt.imshow(img, cmap="gray")
+    # plt.imshow(img/2 + ref_image*128, cmap="gray")
+    # show_2_image(ref_image, img /2 + ref_image*128, block=True)
+    # exit()
+    w.add_ref_image(ref_image)
 
     ms = StretchMotor(w, scale_length=0.2, scale_orientation=0.4, sensor_threshold=0.95)
     mt = ThickenMotor(w, scale_thickness=0.3, sensor_threshold=0.6)
@@ -62,15 +70,21 @@ if __name__ == '__main__':
         print("QUIT")
         exit()
 
+    def save_on_click(event):
+        print("SAVE")
+        w.save()
+
     btn_quit = Button(plt.axes([0.85, 0.10, 0.1, 0.04]), '--- QUIT ---')
     btn_reset = Button(plt.axes([0.85, 0.15, 0.1, 0.04]), '--- RESET ---')
     btn_auto = Button(plt.axes([0.85, 0.20, 0.1, 0.04]), '--- AUTO ---')
     btn_next = Button(plt.axes([0.85, 0.25, 0.1, 0.04]), '--- NEXT ---')
     btn_test = Button(plt.axes([0.85, 0.30, 0.1, 0.04]), '--- TEST ---')
+    btn_save = Button(plt.axes([0.85, 0.35, 0.1, 0.04]), '--- SAVE ---')
     btn_quit.on_clicked(quit_on_click)
     btn_reset.on_clicked(reset_on_click)
     btn_auto.on_clicked(auto_on_click)
     btn_next.on_clicked(next_on_click)
     btn_test.on_clicked(test_on_click)
+    btn_save.on_clicked(save_on_click)
 
     plt.show()

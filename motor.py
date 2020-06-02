@@ -14,6 +14,7 @@ from sensor import *
 class Motor(object):
     def __init__(self, worm):
         self.worm = worm
+        self.name = "Motor"
         worm.motors.append(self)
         logging.info("Wrom[%r] add Motor[%r]" % (worm, self))
 
@@ -25,6 +26,7 @@ class StretchMotor(Motor):
     def __init__(self, worm, scale_length=1.0, scale_orientation=1.0,
                  sensor_scale=1.0, sensor_sigma=1.5, sensor_threshold=0.9):
         super(StretchMotor, self).__init__(worm)
+        self.name = "StretchMotor"
         self.head_sensor = TerminalSensor(worm, 0)
         self.tail_sensor = TerminalSensor(worm, -1)
         self.scale_length = scale_length
@@ -32,14 +34,17 @@ class StretchMotor(Motor):
         self.sensor_scale = sensor_scale
         self.sensor_sigma = sensor_sigma
         self.sensor_threshold = sensor_threshold
+        self.final_index = 0
 
-    def apply(self, verbose=True):
+    def apply(self, verbose=False):
         w = self.worm
         N = w.num_nodes
+        head_use_ref = w.mode["HeadReady"]
+        tail_use_ref = w.mode["TailReady"]
         if verbose:
             logging.info("StretchMotor(%r) begins" % w)
         head_strength, head_direction = self.head_sensor.detect(
-            scale=self.sensor_scale, threshold=self.sensor_threshold, sigma=self.sensor_sigma, verbose=verbose)
+            scale=self.sensor_scale, threshold=self.sensor_threshold, sigma=self.sensor_sigma, verbose=verbose, use_ref=head_use_ref)
         w.operate_profile_gaussion(
             'L', 0, N // 10, head_strength * self.scale_length)
         w.operate_profile_gaussion(
@@ -49,8 +54,19 @@ class StretchMotor(Motor):
                 "Head terminal sensor: detect: stretch strength = %f" % head_strength)
             logging.info(
                 "Head terminal sensor: detect: stretch direction = %f (+right, -left)" % head_direction)
-        tail_strength, tail_direction = self.tail_sensor.detect(
-            scale=self.sensor_scale, threshold=self.sensor_threshold, sigma=self.sensor_sigma, verbose=verbose)
+        if not tail_use_ref:
+            tail_strength, tail_direction = self.tail_sensor.detect(
+                scale=self.sensor_scale, threshold=self.sensor_threshold, sigma=self.sensor_sigma, verbose=verbose, use_ref=False)
+        else:
+            tail_strength, tail_direction = self.tail_sensor.detect(
+                scale=0.25, threshold=self.sensor_threshold, sigma=self.sensor_sigma, verbose=verbose, use_ref=False)
+            # tail_direction *= 0.2
+        # 
+        if head_use_ref and tail_strength < 0 and tail_use_ref and head_strength < 0:
+            self.final_index += 1
+            logging.info("F%d" % self.final_index)
+            if self.final_index > 1:
+                w.mode["Final"] = True
         w.operate_profile_gaussion(
             'L', -1, N // 10, tail_strength * self.scale_length)
         w.operate_profile_gaussion(
@@ -70,6 +86,7 @@ class ThickenMotor(Motor):
     def __init__(self, worm, scale_thickness=1.0,
                  sensor_scale=1.0, sensor_sigma=1.5, sensor_threshold=0.9):
         super(ThickenMotor, self).__init__(worm)
+        self.name = "ThickenMotor"
         w = self.worm
         N = w.num_nodes
         self.sensors = [None for _ in range(N)]
@@ -104,6 +121,7 @@ class ThickenMotor(Motor):
 class NomalizationMotor(Motor):
     def __init__(self, worm, balance_threshold=0.6, balance_scale=0.1):
         super(NomalizationMotor, self).__init__(worm)
+        self.name = "NomalizationMotor"
         self.balance_threshold = balance_threshold
         self.balance_scale = balance_scale
 
@@ -151,8 +169,8 @@ class NomalizationMotor(Motor):
         ## Part 2: Smooth the profiles.
         w.profile_length = gaussian_filter1d(w.profile_length, sigma=2, mode='nearest')
         w.profile_orientation = gaussian_filter1d(w.profile_orientation, sigma=1, mode='nearest')
-        w.profile_thick_left = gaussian_filter1d(w.profile_thick_left, sigma=1, mode='nearest')
-        w.profile_thick_right = gaussian_filter1d(w.profile_thick_right, sigma=1, mode='nearest')
+        w.profile_thick_left = gaussian_filter1d(w.profile_thick_left, sigma=1, mode='constant', cval=1)
+        w.profile_thick_right = gaussian_filter1d(w.profile_thick_right, sigma=1, mode='constant', cval=1)
 
         ## Part 3: Normalize the length.
         average_L = np.average(w.profile_length)

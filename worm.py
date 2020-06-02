@@ -9,7 +9,7 @@ from time import sleep
 from plt_helper import *
 from util import normalized, gaussian_blur, get_image_intensity, _fbetween
 from random import random
-from time import time
+from time import time, strftime
 import logging
 from matplotlib.widgets import Button
 from scipy.ndimage import gaussian_filter1d
@@ -29,6 +29,7 @@ class Worm(object):
                  num_nodes=64):
         # background image
         self.image = image
+        self.ref_image = None
         self.blur_image_cache = dict()
         # trandormation parameters:
         self.trans_params_orientation_angle = orientation_angle
@@ -54,10 +55,15 @@ class Worm(object):
         # update
         self.last_change = time()
         self.last_update = 0
+        self.iter = 0
         self.update_node()
         # draw
         self.fig_handle = None
         self.ax_collection_to_remove = []
+        self.mode = {"HeadReady": False, "TailReady": False, "Final": False}
+
+    def add_ref_image(self, ref):
+        self.ref_image = ref
 
     def profile_init(self):
         num_nodes = self.ori_num_nodes
@@ -176,8 +182,20 @@ class Worm(object):
         self.node_right[0] = self.node_pos[0]
 
     def apply_motors(self):
-        for m in self.motors:
-            m.apply()
+        N = self.num_nodes
+        if abs(self.profile_orientation[0]) > 90 * PI / 180:
+            self.mode["HeadReady"] = True
+        if abs(self.profile_orientation[N-1]) > 90 * PI / 180:
+            self.mode["TailReady"] = True
+        self.iter += 1
+        if self.mode["Final"]:
+            for m in self.motors:
+                if m.name == "ThickenMotor":
+                    m.sensor_sigma=0.5
+                    m.apply()
+        else:
+            for m in self.motors:
+                m.apply()
 
     def get_blur_image(self, sigma):
         if sigma not in self.blur_image_cache.keys():
@@ -219,18 +237,71 @@ class Worm(object):
             coords[i - 1, 1, :] = self.node_pos[i]
             coords[i - 1, 2, :] = self.node_right[i]
             colors[i - 1, :] = np.array([.25, .75, .25, .5])
-        lc = LineCollection(coords, colors=colors, linewidths=1)
-        ax.add_collection(lc)
-        self.ax_collection_to_remove.append(lc)
+            if i < N / 5 and self.mode["HeadReady"]:
+                colors[i - 1, :] = np.array([1, .5, .25, .5])
+            if i > 4 * N / 5 and self.mode["TailReady"]:
+                colors[i - 1, :] = np.array([1, .5, .25, .5])
+        if not self.mode["Final"]:
+            lc = LineCollection(coords, colors=colors, linewidths=1)
+            ax.add_collection(lc)
+            self.ax_collection_to_remove.append(lc)
 
         # draw end
+        title_str = "iteration %d, " % self.iter
+        if self.mode["Final"]:
+            title_str += "Final Adjustment"
+        else:
+            title_str += "Head:"
+            if self.mode["HeadReady"]:
+                title_str += "Ready"
+            else:
+                title_str += "Not Ready"
+            title_str += ", Tail:"
+            if self.mode["TailReady"]:
+                title_str += "Ready"
+            else:
+                title_str += "Not Ready"
+
+        plt.suptitle(title_str, fontsize=20)
         plt.draw()
 
+    def save(self):
+        filename = "worm_data" + strftime("_%Y%m%d_%H%M%S")
+        fo = open(filename, "w")
+        fo.write("%f \n" % self.trans_params_orientation_angle)
+        fo.write("%f %f \n" % (self.trans_params_base_position[0], 
+                               self.trans_params_base_position[1]))
+        fo.write("%f \n" % self.trans_params_scale)
+        N = self.num_nodes
+        for i in range(N):
+            fo.write("%f %f %f %f \n" % 
+                    (self.profile_length[i],
+                     self.profile_orientation[i],
+                     self.profile_thick_left[i],
+                     self.profile_thick_right[i],
+                     ))
+        fo.close()
 
+    def load(self, filename):
+        fi = open(filename, "r")
 
+        nums = list(map(float, fi.read().split()))
+        fi.close()
 
+        self.trans_params_orientation_angle = nums[0]
+        self.trans_params_base_position[0] = nums[1]
+        self.trans_params_base_position[1] = nums[2]
+        self.trans_params_scale = nums[3]
 
+        idx = 4
+        N = self.num_nodes
+        for i in range(N):
+            self.profile_length[i]      = nums[idx]   
+            self.profile_orientation[i] = nums[idx+1]  
+            self.profile_thick_left[i]  = nums[idx+2] 
+            self.profile_thick_right[i] = nums[idx+3]
+            idx += 4  
 
-
-
+        self.last_change=time()
+        self.update_node()
 
