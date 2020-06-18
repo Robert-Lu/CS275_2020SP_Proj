@@ -74,6 +74,10 @@ class Worm(object):
         self.profile_thick_right = np.ones(
             [self.num_nodes], dtype=float) * self.ori_thickness
         # terminal shrink TODO?
+        self.profile_thick_left[0] *= 0
+        self.profile_thick_left[num_nodes - 1] *= 0
+        self.profile_thick_right[0] *= 0
+        self.profile_thick_right[num_nodes - 1] *= 0
         self.profile_thick_left[1] *= 0.5
         self.profile_thick_left[2] *= 0.85
         self.profile_thick_left[num_nodes - 2] *= 0.5
@@ -204,8 +208,10 @@ class Worm(object):
                 'Worm.get_blur_image: added blur image with sigma=%f to cache.' % sigma)
         return self.blur_image_cache[sigma]
 
-    def draw(self, f, ax):
+    def draw(self, f, axs):
         self.update_node()
+
+        ax, ax_L, ax_O, ax_TL, ax_TR = axs
 
         # handle the handle
         if f is None:
@@ -238,13 +244,28 @@ class Worm(object):
             coords[i - 1, 2, :] = self.node_right[i]
             colors[i - 1, :] = np.array([.25, .75, .25, .5])
             if i < N / 5 and self.mode["HeadReady"]:
-                colors[i - 1, :] = np.array([1, .5, .25, .5])
+                colors[i - 1, :] = np.array([1, 0, 0, 1])
             if i > 4 * N / 5 and self.mode["TailReady"]:
-                colors[i - 1, :] = np.array([1, .5, .25, .5])
+                colors[i - 1, :] = np.array([1, 0, 0, 1])
         if not self.mode["Final"]:
             lc = LineCollection(coords, colors=colors, linewidths=1)
             ax.add_collection(lc)
             self.ax_collection_to_remove.append(lc)
+
+        # draw plots
+        ax_L.clear()
+        ax_O.clear()
+        ax_TL.clear()
+        ax_TR.clear()
+        x = np.arange(N)
+        L = self.profile_length
+        O = self.profile_orientation
+        TL = self.profile_thick_left
+        TR = self.profile_thick_right
+        ax_L.plot(x, L)
+        ax_O.plot(x, O)
+        ax_TL.plot(x, TL)
+        ax_TR.plot(x, TR)
 
         # draw end
         title_str = "iteration %d, " % self.iter
@@ -262,7 +283,11 @@ class Worm(object):
             else:
                 title_str += "Not Ready"
 
-        plt.suptitle(title_str, fontsize=20)
+        ax.set_title(title_str, fontsize=32)
+        ax_L.set_title("L", fontsize=32)
+        ax_O.set_title("O", fontsize=32)
+        ax_TL.set_title("TL", fontsize=32)
+        ax_TR.set_title("TR", fontsize=32)
         plt.draw()
 
     def save(self):
@@ -288,10 +313,10 @@ class Worm(object):
         nums = list(map(float, fi.read().split()))
         fi.close()
 
-        self.trans_params_orientation_angle = nums[0]
-        self.trans_params_base_position[0] = nums[1]
-        self.trans_params_base_position[1] = nums[2]
-        self.trans_params_scale = nums[3]
+        # self.trans_params_orientation_angle = nums[0]
+        # self.trans_params_base_position[0] = nums[1]
+        # self.trans_params_base_position[1] = nums[2]
+        # self.trans_params_scale = nums[3]
 
         idx = 4
         N = self.num_nodes

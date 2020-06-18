@@ -26,15 +26,23 @@ def image_preprocess(img, target_width):
 if __name__ == '__main__':
     img = plt.imread("./brain.jpg")
     img = image_preprocess(img, target_width=512)
-    f, ax = plt.subplots(figsize=grid_figure_size(1, 1, magnitude=2.75))
+    # f, ax = plt.subplots(figsize=grid_figure_size(1, 1, magnitude=2.75))
+    f, ax = plt.subplots(figsize=(20, 16))
+    ax.set_position([0.275, 0., 0.575, 1])
+    ax_L  = plt.axes([0.03, 0.75, 0.22, 0.2])
+    ax_O  = plt.axes([0.03, 0.50, 0.22, 0.2])
+    ax_TL = plt.axes([0.03, 0.25, 0.22, 0.2])
+    ax_TR = plt.axes([0.03, 0.00, 0.22, 0.2])
+    axs = [ax, ax_L, ax_O, ax_TL, ax_TR]
 
+    # w = Worm(img, num_nodes=32, scale=1, thickness=2.0,
     w = Worm(img, num_nodes=64, scale=.5, thickness=2.0,
              # orientation_angle=3.14/4,
              base_position=np.array([237, 163]))
     w.load("worm_data_20200601_164545")
 
     ref_image = get_eroded_reference(img, threshold=230, blur_sigma=2, eroding_width=3)
-    plt.imshow(img, cmap="gray")
+    ax.imshow(img, cmap="gray")
     # plt.imshow(img/2 + ref_image*128, cmap="gray")
     # show_2_image(ref_image, img /2 + ref_image*128, block=True)
     # exit()
@@ -44,19 +52,20 @@ if __name__ == '__main__':
     mt = ThickenMotor(w, scale_thickness=0.3, sensor_threshold=0.6)
     mn = NomalizationMotor(w, balance_threshold=0.5, balance_scale=0.02)
 
-    w.draw(f, ax)
+    w.draw(f, axs)
 
     def test_on_click(event):
-        print("IDLE")
-        # ms.apply()
-        mn.apply()
-        # mt.apply()
-        w.draw(f, ax)
+        print("NEXT without save image")
+        mt.apply()
+        w.apply_motors()
+        w.draw(f, axs)
+        # plt.savefig("image/%04d.png" % w.iter)
 
     def next_on_click(event):
         print("NEXT")
         w.apply_motors()
-        w.draw(f, ax)
+        w.draw(f, axs)
+        plt.savefig("image/%04d.png" % w.iter)
 
     def auto_on_click(event):
         print("AUTO (not implemented)")
@@ -74,12 +83,12 @@ if __name__ == '__main__':
         print("SAVE")
         w.save()
 
-    btn_quit = Button(plt.axes([0.85, 0.10, 0.1, 0.04]), '--- QUIT ---')
-    btn_reset = Button(plt.axes([0.85, 0.15, 0.1, 0.04]), '--- RESET ---')
-    btn_auto = Button(plt.axes([0.85, 0.20, 0.1, 0.04]), '--- AUTO ---')
-    btn_next = Button(plt.axes([0.85, 0.25, 0.1, 0.04]), '--- NEXT ---')
-    btn_test = Button(plt.axes([0.85, 0.30, 0.1, 0.04]), '--- TEST ---')
-    btn_save = Button(plt.axes([0.85, 0.35, 0.1, 0.04]), '--- SAVE ---')
+    btn_quit = Button(plt.axes([0.9, 0.10, 0.09, 0.04]), '--- QUIT ---')
+    btn_reset = Button(plt.axes([0.9, 0.15, 0.09, 0.04]), '--- RESET ---')
+    btn_auto = Button(plt.axes([0.9, 0.20, 0.09, 0.04]), '--- AUTO ---')
+    btn_next = Button(plt.axes([0.9, 0.25, 0.09, 0.04]), '--- NEXT ---')
+    btn_test = Button(plt.axes([0.9, 0.30, 0.09, 0.04]), '--- TEST ---')
+    btn_save = Button(plt.axes([0.9, 0.35, 0.09, 0.04]), '--- SAVE ---')
     btn_quit.on_clicked(quit_on_click)
     btn_reset.on_clicked(reset_on_click)
     btn_auto.on_clicked(auto_on_click)
